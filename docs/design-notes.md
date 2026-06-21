@@ -89,6 +89,41 @@ Why keep them separate:
 This is basically a command/query split at the data layer, but kept practical and
 concrete instead of turning it into a big framework.
 
+## Schema and persistence (current state)
+
+The schema (Flyway `V2__brand_lift_domain.sql`) has four tables: `campaigns`, the
+two raw-event tables `ad_exposure_events` and `survey_responses`, and the computed
+`campaign_lift_summaries`.
+
+* **Raw events vs. computed summaries, in the schema.** The raw tables are
+  append-only and write-heavy; `campaign_lift_summaries` holds one small row per
+  campaign and is fully derivable from the raw events. Keeping them in separate
+  tables means the read-heavy summary can be recomputed at any time without touching
+  the raw history (important for late-arriving data and for fixing computation bugs).
+* **Why `idempotency_key` is unique.** Exposure events arrive under at-least-once
+  delivery, so the same logical event can be delivered more than once. A unique
+  constraint on `idempotency_key` makes the database the single source of truth for
+  deduplication — it holds across restarts and across multiple app instances, which
+  an in-memory cache could not.
+* **Indexes and why.** On both raw tables we index `campaign_id` (compute/read per
+  campaign), `user_id_hash` (join exposures to survey responses by user), and the
+  event/response timestamp (windowing and late-data handling). `idempotency_key` is
+  already covered by its unique constraint. We index the actual read paths rather
+  than guessing.
+* **Data-quality constraints at the storage boundary.** Survey scores are bounded
+  `0..100` by check constraints, `channel` is restricted to the known set (matching
+  the `Channel` enum), and `campaigns` requires `ends_at > starts_at`. Bad data is
+  rejected by the database, not only by application code.
+* **Server-assigned timestamps.** `created_at` / `updated_at` / `received_at` default
+  to `now()` in the database; the application does not set them. Domain timestamps
+  (`impression_timestamp`, `response_timestamp`) are supplied by the caller.
+
+**Intentionally deferred:** REST APIs, the lift calculation that populates
+`campaign_lift_summaries`, dedup-on-conflict ingestion (the repository insert is a
+plain insert that surfaces the unique-constraint violation for now), and any
+`updated_at` trigger. The persistence layer currently exposes only `insert` and
+`findById` for the three raw entities — enough to prove the schema and boundaries.
+
 ## Idempotency approach
 
 Ingestion needs to be safe when producers retry, especially with at-least-once

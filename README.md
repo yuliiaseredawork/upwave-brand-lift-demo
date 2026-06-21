@@ -97,6 +97,11 @@ A mock insight generator takes a summary and produces a natural-language marketi
 insight. It sits behind an interface, so a real LLM integration could be added
 later without changing the rest of the app too much.
 
+The project now has the initial persistence schema (Flyway): `campaigns`, the raw
+`ad_exposure_events` and `survey_responses` tables, and the computed
+`campaign_lift_summaries`, with small explicit JDBC repositories for the raw
+entities. REST APIs and the lift calculation come in later steps.
+
 More details are in [`docs/design-notes.md`](docs/design-notes.md).
 
 ## Planned commit roadmap
