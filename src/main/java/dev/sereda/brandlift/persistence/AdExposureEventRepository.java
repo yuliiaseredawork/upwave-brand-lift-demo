@@ -54,6 +54,13 @@ public class AdExposureEventRepository {
                 .optional();
     }
 
+    public Optional<AdExposureEvent> findByIdempotencyKey(String idempotencyKey) {
+        return jdbcClient.sql("select * from ad_exposure_events where idempotency_key = :key")
+                .param("key", idempotencyKey)
+                .query(AdExposureEventRepository::mapRow)
+                .optional();
+    }
+
     private static AdExposureEvent mapRow(ResultSet rs, int rowNum) throws SQLException {
         return new AdExposureEvent(
                 rs.getObject("id", UUID.class),

@@ -206,3 +206,27 @@ curl -s http://localhost:8080/api/campaigns
 
 Invalid requests (blank name/brand, missing dates, or `endsAt` not after `startsAt`)
 return `400` with a short `message` and per-field `details`.
+
+## Exposure Event Ingestion API
+
+Ingest a single ad exposure event. Ingestion is **idempotent**: repeating a request
+with the same `idempotencyKey` is safe and will not create a second raw event.
+
+```bash
+curl -s -X POST http://localhost:8080/api/exposure-events \
+  -H 'Content-Type: application/json' \
+  -d '{
+        "campaignId": "{campaignId}",
+        "userIdHash": "u-9f86d081884c7d65",
+        "channel": "CTV",
+        "creativeId": "creative-1",
+        "placementId": "placement-1",
+        "impressionTimestamp": "2025-01-05T12:00:00Z",
+        "idempotencyKey": "evt-0001"
+      }'
+# First call:  201 Created with "duplicate": false
+# Same key again: 200 OK with "duplicate": true and the original event (no new row)
+```
+
+`channel` must be one of `CTV`, `SOCIAL`, `DISPLAY`, `STREAMING_AUDIO`,
+`RETAIL_MEDIA`, `LINEAR_TV`. An unknown `campaignId` returns `404`.

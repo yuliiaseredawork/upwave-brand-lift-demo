@@ -141,6 +141,36 @@ layer small and independently reviewable. The campaign endpoints use a plain ins
 plus read-back (no idempotency yet); idempotent exposure ingestion is its own step,
 where the unique `idempotency_key` constraint becomes dedup-on-conflict.
 
+## Idempotent exposure ingestion (implemented)
+
+`POST /api/exposure-events` ingests one raw exposure event idempotently.
+
+* **Why duplicate delivery is expected.** Upstream ad-serving and event-streaming
+  systems are practically at-least-once: producers retry on timeouts, brokers
+  redeliver on consumer restarts, and network hiccups cause re-sends. So the same
+  logical event arriving twice is normal traffic, not an error — ingestion has to be
+  safe under it.
+* **How it behaves.** Unknown campaign → 404. New `idempotencyKey` → insert and
+  `201 Created` with `duplicate=false`. Already-seen key → no second row, `200 OK`
+  with the existing event and `duplicate=true`. A duplicate is a successful no-op, so
+  a retrying producer converges instead of failing.
+* **Why the unique constraint is the final guard.** The service first checks for an
+  existing key, but that check and the insert are not atomic — two concurrent
+  deliveries can both pass the check. The unique constraint on `idempotency_key`
+  makes the database reject the loser; the service catches that violation and returns
+  the row that won. The pre-check is only an optimization; correctness lives in the
+  constraint. This is also why we did not reach for an application-level lock.
+
+**Intentionally deferred:**
+
+* An async queue / Kafka / Kinesis in front of ingestion. The endpoint is shaped
+  like a producer write (append a raw event, no computation), so a queue can be added
+  later without reshaping the domain.
+* Dead-letter handling for events that repeatedly fail validation or processing.
+* Aggregation / lift calculation over the ingested events.
+* Late-event handling beyond simply storing the event with its timestamps; deciding
+  whether a late event triggers recompute is a later concern.
+
 ## Idempotency approach
 
 Ingestion needs to be safe when producers retry, especially with at-least-once

@@ -44,6 +44,13 @@ public class CampaignRepository {
                 .optional();
     }
 
+    public boolean existsById(UUID id) {
+        return Boolean.TRUE.equals(jdbcClient.sql("select exists(select 1 from campaigns where id = :id)")
+                .param("id", id)
+                .query(Boolean.class)
+                .single());
+    }
+
     /** Newest campaigns first. No pagination yet; the dataset is small at this stage. */
     public List<Campaign> findAll() {
         return jdbcClient.sql("select * from campaigns order by created_at desc")

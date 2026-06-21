@@ -10,5 +10,15 @@ public enum Channel {
     DISPLAY,
     STREAMING_AUDIO,
     RETAIL_MEDIA,
-    LINEAR_TV
+    LINEAR_TV;
+
+    /** True if {@code name} matches one of the supported channels exactly. */
+    public static boolean isSupported(String name) {
+        for (Channel channel : values()) {
+            if (channel.name().equals(name)) {
+                return true;
+            }
+        }
+        return false;
+    }
 }
