@@ -124,6 +124,23 @@ plain insert that surfaces the unique-constraint violation for now), and any
 `updated_at` trigger. The persistence layer currently exposes only `insert` and
 `findById` for the three raw entities — enough to prove the schema and boundaries.
 
+## Why campaign management comes first
+
+The first API exposed is plain CRUD-ish campaign management, before any event
+ingestion or lift calculation. That ordering is deliberate:
+
+* A campaign is the parent of every other record (exposures, responses, summaries
+  all reference `campaign_id`), so it has to exist before anything can be ingested.
+* It lets us establish the API conventions — validation, error shape (`ApiError`),
+  DTO-vs-persistence separation, controller/service/repository boundaries — on the
+  simplest possible resource, so the higher-volume ingestion endpoints can follow
+  the same patterns without re-litigating them.
+
+Event ingestion and lift calculation are intentionally deferred to keep each API
+layer small and independently reviewable. The campaign endpoints use a plain insert
+plus read-back (no idempotency yet); idempotent exposure ingestion is its own step,
+where the unique `idempotency_key` constraint becomes dedup-on-conflict.
+
 ## Idempotency approach
 
 Ingestion needs to be safe when producers retry, especially with at-least-once

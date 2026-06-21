@@ -172,3 +172,37 @@ When you are done, stop Postgres:
 docker compose down          # keep data
 docker compose down -v       # also remove the volume
 ```
+
+## Campaign API
+
+With the app running (`local` profile, against the Compose Postgres):
+
+**Create a campaign**
+
+```bash
+curl -s -X POST http://localhost:8080/api/campaigns \
+  -H 'Content-Type: application/json' \
+  -d '{
+        "name": "Spring Awareness Push",
+        "brandName": "Acme",
+        "startsAt": "2025-01-01T00:00:00Z",
+        "endsAt": "2025-01-15T00:00:00Z"
+      }'
+# 201 Created, returns the campaign including id, createdAt, updatedAt
+```
+
+**Get a campaign by id**
+
+```bash
+curl -s http://localhost:8080/api/campaigns/{id}
+# 200 with the campaign, or 404 if it does not exist
+```
+
+**List campaigns** (newest first)
+
+```bash
+curl -s http://localhost:8080/api/campaigns
+```
+
+Invalid requests (blank name/brand, missing dates, or `endsAt` not after `startsAt`)
+return `400` with a short `message` and per-field `details`.
