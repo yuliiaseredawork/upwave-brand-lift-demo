@@ -1,0 +1,13 @@
+# Local development profile. Matches the Postgres service in docker-compose.yml.
+# Activate with: --spring.profiles.active=local (or SPRING_PROFILES_ACTIVE=local)
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/brandlift
+    username: brandlift
+    password: brandlift
+
+# Show full health detail locally; in real environments this stays behind auth.
+management:
+  endpoint:
+    health:
+      show-details: always

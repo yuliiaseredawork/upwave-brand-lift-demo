@@ -1,0 +1,6 @@
+# Test profile. Datasource is supplied at runtime by Testcontainers via
+# @ServiceConnection, so no static URL/credentials are needed here.
+spring:
+  flyway:
+    enabled: true
+    locations: classpath:db/migration

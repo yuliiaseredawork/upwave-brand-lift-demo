@@ -1,0 +1,22 @@
+# Local development dependencies. For now this is just Postgres; the app itself
+# is run from the IDE / Gradle so it's fast to iterate on.
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: brandlift-postgres
+    environment:
+      POSTGRES_DB: brandlift
+      POSTGRES_USER: brandlift
+      POSTGRES_PASSWORD: brandlift
+    ports:
+      - "5432:5432"
+    volumes:
+      - brandlift_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U brandlift -d brandlift"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  brandlift_pgdata:

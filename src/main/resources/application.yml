@@ -1,0 +1,25 @@
+spring:
+  application:
+    name: upwave-brand-lift-demo
+  # Connection settings come from the active profile (see application-local.yml)
+  # and are overridable via environment variables in containerized/deployed runs.
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/brandlift}
+    username: ${SPRING_DATASOURCE_USERNAME:brandlift}
+    password: ${SPRING_DATASOURCE_PASSWORD:brandlift}
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # Keep the surface small and intentional; expand as we add real signals.
+        include: health,info
+  endpoint:
+    health:
+      show-details: when-authorized
+
+server:
+  port: 8080
