@@ -35,6 +35,34 @@ or ask the Upwave team for the real production model, I called that out.
   would this service be responsible for it?
 * Is lift calculated per question, per audience segment, or both?
 
+## Synthetic data
+
+Because real exposure and survey data is proprietary, the project generates its own
+via `SyntheticBrandLiftGenerator`. A few deliberate assumptions:
+
+* Each user is independently exposed or not (Bernoulli draw on `exposureRate`); the
+  rest are control. Exposed users get a small number of impressions across channels.
+* Survey scores are `baseline (+ lift if exposed) + small noise`, clamped to 0..100.
+  Lift is injected directly into exposed users rather than emerging from any model.
+* Duplicates are exact redeliveries (same idempotency key); late responses are simply
+  flagged and timestamped after the campaign window.
+* Generation is fully deterministic: one seeded `Random` plus hashed ids, so the same
+  scenario always yields an equal dataset.
+
+**What this is useful for:** exercising the backend problems — idempotent ingestion
+and dedup, handling late-arriving data, recompute-ability, data-quality counts — with
+data shaped like the real thing, reproducibly and without proprietary inputs.
+
+**What it does not prove:** anything about real-world measurement accuracy. There is
+no causal model, no audience matching, no weighting, and no sampling realism. The lift
+is *assumed*, not *measured*.
+
+**Why final lift / statistical correctness is deferred:** computing a trustworthy lift
+number (significance, confidence intervals, weighting) is a separate concern from the
+data plumbing this project is about. Modeling it now would add statistical complexity
+that obscures the backend design, so the lift summary is computed in a later step and
+kept intentionally simple even then.
+
 ## Raw events vs. computed summaries
 
 The most important modeling decision in this project is **separating append-only

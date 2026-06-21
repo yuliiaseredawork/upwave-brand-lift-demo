@@ -42,6 +42,20 @@ engineer:
 * Treat **reliability and observability** as part of the design, not something to
   bolt on at the end.
 
+## Why synthetic data?
+
+Real ad exposure and survey datasets are proprietary, so this project generates its
+own **synthetic-but-realistic** data instead. A small simulation layer
+(`dev.sereda.brandlift.simulation`) produces deterministic campaigns, exposure
+events, and survey responses from a configurable scenario — including the messy
+parts that matter to a backend: exposed/control groups, duplicate exposure events,
+and late-arriving survey responses.
+
+The point is to model the **production backend concerns** of a brand measurement
+platform — idempotent ingestion, data quality, recompute-ability — not to claim real
+measurement accuracy. The numbers are made up on purpose; the engineering problems
+they create are the real subject.
+
 ## Tech stack
 
 * Java 17, Spring Boot 3.x
