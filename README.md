@@ -255,3 +255,29 @@ curl -s -X POST http://localhost:8080/api/survey-responses \
 
 An unknown `campaignId` returns `404`; out-of-range scores or missing required
 fields return `400`.
+
+## Campaign Lift Summary API
+
+Compute and read a campaign's lift summary from its stored survey responses.
+
+**Recalculate** (computes from raw responses and upserts the summary)
+
+```bash
+curl -s -X POST http://localhost:8080/api/campaigns/{id}/lift-summary/recalculate
+# 200 with the computed summary (exposed/control counts, per-metric averages, and lift)
+# 404 if the campaign does not exist
+# 422 if the campaign has no exposed or no control responses
+```
+
+**Get the latest summary**
+
+```bash
+curl -s http://localhost:8080/api/campaigns/{id}/lift-summary
+# 200 with the persisted summary
+# 404 if the campaign does not exist, or if no summary has been calculated yet
+```
+
+> **Note:** lift here is a simple **exposed-average minus control-average** in score
+> points, rounded to two decimals. This demo intentionally does **not** implement
+> causal inference, statistical significance, or confidence intervals — it models the
+> backend flow (aggregate raw data → persist a computed summary), not measurement rigor.

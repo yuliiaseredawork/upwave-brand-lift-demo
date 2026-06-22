@@ -202,6 +202,42 @@ response is inserted as a raw record.
 * Attribution / identity-graph logic for joining responses to exposures beyond the
   shared `user_id_hash`.
 
+## Campaign lift calculation (implemented)
+
+`POST /api/campaigns/{id}/lift-summary/recalculate` computes a summary from the raw
+survey responses and upserts it into `campaign_lift_summaries`; `GET .../lift-summary`
+returns the persisted summary.
+
+* **The calculation.** Responses are split by `exposed`. For each metric we take the
+  exposed-group average and the control-group average, and define lift as
+  `exposed_avg - control_avg` in score points. Averages and lift are rounded to two
+  decimals, and lift is computed from the rounded averages so the persisted numbers
+  are internally consistent. The aggregation is a single explicit SQL query using
+  Postgres `FILTER`, which keeps the per-group math in one readable place.
+* **Why calculation is separated from ingestion.** Ingestion stays a cheap,
+  append-only write on the hot path; computation is a separate, on-demand step over
+  the accumulated data. This is the command/query split made concrete: it lets the
+  two scale and fail independently, and means a recompute never blocks or slows
+  ingestion. Today recalculation is synchronous and triggered by an endpoint; the
+  same boundary is where a queue or scheduled batch job would later sit.
+* **Why raw responses remain the source of truth.** The summary is a pure function of
+  the raw responses, so it can always be rebuilt. That is what makes late-arriving
+  data and computation-bug fixes safe to handle by re-running the calculation rather
+  than patching numbers in place, and it keeps every summary auditable back to its
+  inputs.
+* **Why summaries are persisted.** Customers read lift far more often than it changes,
+  and the underlying aggregation gets more expensive as response volume grows. Storing
+  one small row per campaign makes reads cheap and stable, and records `calculated_at`
+  so staleness is visible. The summary is a cache of a computation, not a second
+  source of truth.
+* **Insufficient data is an explicit error.** Lift is a comparison, so if either group
+  has zero responses we refuse to invent a number and return 422 rather than producing
+  a misleading zero or null.
+
+**Intentionally deferred:** statistical significance, confidence intervals, causal
+inference, identity-graph / attribution logic for joining responses to exposures, and
+moving recalculation to an async queue or scheduled batch job.
+
 ## Idempotency approach
 
 Ingestion needs to be safe when producers retry, especially with at-least-once
