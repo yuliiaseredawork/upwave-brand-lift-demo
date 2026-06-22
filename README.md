@@ -230,3 +230,28 @@ curl -s -X POST http://localhost:8080/api/exposure-events \
 
 `channel` must be one of `CTV`, `SOCIAL`, `DISPLAY`, `STREAMING_AUDIO`,
 `RETAIL_MEDIA`, `LINEAR_TV`. An unknown `campaignId` returns `404`.
+
+## Survey Response Ingestion API
+
+Ingest a single survey response. `exposed` records whether the respondent was in the
+exposed or control group, and the three scores are bounded `0..100`. `late` is
+optional (defaults to `false`).
+
+```bash
+curl -s -X POST http://localhost:8080/api/survey-responses \
+  -H 'Content-Type: application/json' \
+  -d '{
+        "campaignId": "{campaignId}",
+        "userIdHash": "u-9f86d081884c7d65",
+        "exposed": true,
+        "awarenessScore": 42.5,
+        "considerationScore": 20,
+        "purchaseIntentScore": 10,
+        "responseTimestamp": "2025-01-05T12:00:00Z",
+        "late": false
+      }'
+# 201 Created, returns the stored response including id and receivedAt
+```
+
+An unknown `campaignId` returns `404`; out-of-range scores or missing required
+fields return `400`.

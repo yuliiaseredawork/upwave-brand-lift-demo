@@ -171,6 +171,37 @@ where the unique `idempotency_key` constraint becomes dedup-on-conflict.
 * Late-event handling beyond simply storing the event with its timestamps; deciding
   whether a late event triggers recompute is a later concern.
 
+## Survey response ingestion (implemented)
+
+`POST /api/survey-responses` stores one survey response. It is deliberately simpler
+than exposure ingestion: campaign must exist, scores are validated `0..100`, and the
+response is inserted as a raw record.
+
+* **Why responses are stored raw.** Like exposures, survey responses are immutable
+  facts ("user U answered with these scores at time T"). Keeping them raw and
+  append-only means lift can be computed — and recomputed — from source data, and we
+  can audit any summary back to the underlying responses. No aggregation happens on
+  the ingest path.
+* **Why exposed/control is captured on the response.** Lift is the difference between
+  the exposed group and the control group, so each response must carry which group it
+  belongs to. We record `exposed` as a stored attribute rather than deriving it later
+  from exposure events: the group assignment is an input to measurement (in reality
+  decided by the study design / upstream), and pinning it on the response keeps the
+  comparison stable even as exposure data arrives or is corrected. `late` is likewise
+  captured per response so late arrivals are visible without recomputing.
+* **No idempotency key, on purpose.** Unlike exposure events, survey responses have
+  no natural idempotency key in this model, so ingestion is a plain insert and we do
+  not dedup. This is called out rather than hidden.
+
+**Intentionally deferred:**
+
+* Lift calculation over the stored responses.
+* Statistical confidence / significance of any computed lift.
+* Survey deduplication (would require a real response identity from the survey
+  provider).
+* Attribution / identity-graph logic for joining responses to exposures beyond the
+  shared `user_id_hash`.
+
 ## Idempotency approach
 
 Ingestion needs to be safe when producers retry, especially with at-least-once
