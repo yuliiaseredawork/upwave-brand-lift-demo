@@ -281,3 +281,20 @@ curl -s http://localhost:8080/api/campaigns/{id}/lift-summary
 > points, rounded to two decimals. This demo intentionally does **not** implement
 > causal inference, statistical significance, or confidence intervals — it models the
 > backend flow (aggregate raw data → persist a computed summary), not measurement rigor.
+
+## Campaign Insights API
+
+Turn a persisted lift summary into a short, customer-facing insight (summary, key
+findings, recommended next steps, caveats). This reads the existing summary; it does
+not recalculate lift.
+
+```bash
+curl -s http://localhost:8080/api/campaigns/{id}/insights
+# 200 with the generated insight
+# 404 if the campaign does not exist, or if no lift summary has been calculated yet
+```
+
+The text is produced by a **deterministic mock generator**, not a real LLM — no API
+keys or network calls. The generator sits behind a `CampaignInsightGenerator`
+interface, which is the seam where a real LLM provider could be added later (with the
+deterministic generator remaining as a fallback). See `docs/design-notes.md`.

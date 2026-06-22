@@ -238,6 +238,37 @@ returns the persisted summary.
 inference, identity-graph / attribution logic for joining responses to exposures, and
 moving recalculation to an async queue or scheduled batch job.
 
+## AI-ready insight generation (implemented)
+
+`GET /api/campaigns/{id}/insights` turns a persisted lift summary into a
+customer-facing insight. It reads the existing summary (it never recalculates), so
+generation is side-effect free.
+
+* **Why a deterministic mock instead of a real LLM.** The point of this step is the
+  *integration boundary*, not a provider. A real LLM call would add a network
+  dependency, latency, cost, non-determinism, and an external failure mode to what is
+  otherwise a pure read. Modeling the seam with a deterministic generator lets the
+  rest of the system — API shape, error handling, tests — be built and trusted now,
+  with the provider as a later, isolated change.
+* **The boundary.** `CampaignInsightGenerator` is a one-method interface
+  (`CampaignLiftSummary -> CampaignInsight`). The current implementation is offline and
+  deterministic: it classifies each metric's lift into strong/modest/neutral/negative
+  and phrases plain, non-exaggerated text, taking every number straight from the
+  summary. A future LLM-backed implementation would, behind the same interface, shape
+  the summary's structured numbers into a prompt (never raw end-user text), expect a
+  structured response matching `CampaignInsight`, and **fall back to the deterministic
+  generator** on timeout/error/unusable output.
+* **How this helps testing, fallback, and production safety.** Deterministic output
+  means insights are unit-testable without mocking a model and stable across runs. The
+  interface makes the LLM swap a wiring decision, and the deterministic path doubles as
+  the always-available fallback, so the endpoint never hard-depends on an external
+  model being up. Generating from a stored summary (rather than free text) keeps inputs
+  grounded in real numbers, which limits the blast radius of any future model.
+
+**Intentionally deferred:** real LLM provider integration, prompt evaluation, output
+validation beyond the typed `CampaignInsight` shape, hallucination/grounding checks,
+human-review workflows, and customer-specific tone/configuration.
+
 ## Idempotency approach
 
 Ingestion needs to be safe when producers retry, especially with at-least-once
