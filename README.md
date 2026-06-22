@@ -1,300 +1,221 @@
 # upwave-brand-lift-demo
 
-A small backend project that models a simplified **brand lift measurement**
-pipeline: ingest a lot of ad exposure events, combine them with survey answers,
-calculate campaign **lift summaries**, and turn those summaries into readable
-marketing insights.
+This is an independent demo based on public descriptions of the brand measurement domain; 
+it is not affiliated with or endorsed by Upwave.
 
-This is not trying to be a full product. It’s more of a focused engineering
-showcase: data modeling, safe high-volume ingestion, reliability thinking, and
-observability - in code that is still simple enough to explain in an interview.
+A small backend that models a simplified **brand lift measurement** pipeline: ingest
+ad exposure events, ingest survey responses from exposed and control users, compute a
+campaign **lift summary**, and turn that summary into a short, customer-facing
+**insight**.
 
-## What problem this models
+This is a focused engineering showcase, not a product. It is deliberately small enough
+to read in one sitting and explain in an interview, while still exercising the backend
+problems this domain actually has: idempotent high-volume ingestion, separating raw
+data from computed results, recompute-ability, and a clean, AI-ready boundary for
+generated insights. It is a simplified simulation intended to demonstrate backend
+design tradeoffs — not real measurement accuracy.
 
-Brand lift measurement, like what [Upwave](https://www.upwave.com) works on,
-roughly looks like this:
+## The problem it models
 
-1. Ads are shown, which creates a stream of **exposure events** - who saw which
-   campaign and when.
-2. Some users answer **survey questions**, like "Have you heard of brand X?"
-3. By comparing answers from people who *were* exposed with people who *were not*
-   exposed, you can estimate the **lift** caused by the campaign.
-4. Customers need that data turned into clear and trustworthy **insights**.
+Brand lift measurement, like what [Upwave](https://www.upwave.com) works on, roughly
+looks like this:
 
-The tricky part is not really the formula. The harder part is the backend plumbing:
-events can arrive duplicated, late, or out of order; processing can fail and needs
-to retry safely; and the raw amount of events is much bigger than the summaries
-customers actually care about.
+1. Ads are shown, producing a stream of **exposure events** — who saw which campaign,
+   on which channel, and when.
+2. Some users answer **survey questions** ("Have you heard of brand X?").
+3. Comparing answers from users who *were* exposed against those who *were not*
+   (control) estimates the **lift** the campaign produced.
+4. Customers want that turned into clear, trustworthy **insights**.
 
-This project is built around those practical problems.
+The hard part is not the arithmetic. It is the plumbing: events arrive duplicated and
+late, processing must retry safely, and raw event volume dwarfs the small summaries
+customers actually read. This project is built around those concerns.
 
-## Why it exists
+## Why synthetic data
 
-I built this to show how I would approach this kind of backend system as a senior
-engineer:
-
-* Keep **raw events separate from computed summaries**, so ingestion can stay
-  simple and append-only, while reads stay fast.
-* Make ingestion **idempotent**, so retries and at-least-once delivery do not mess
-  up the counts.
-* Keep the design **async-friendly**, even if the first version is synchronous,
-  so moving to a queue or stream later would not require reworking the whole domain.
-* Treat **reliability and observability** as part of the design, not something to
-  bolt on at the end.
-
-## Why synthetic data?
-
-Real ad exposure and survey datasets are proprietary, so this project generates its
-own **synthetic-but-realistic** data instead. A small simulation layer
-(`dev.sereda.brandlift.simulation`) produces deterministic campaigns, exposure
-events, and survey responses from a configurable scenario — including the messy
-parts that matter to a backend: exposed/control groups, duplicate exposure events,
-and late-arriving survey responses.
-
-The point is to model the **production backend concerns** of a brand measurement
-platform — idempotent ingestion, data quality, recompute-ability — not to claim real
-measurement accuracy. The numbers are made up on purpose; the engineering problems
+Real exposure and survey datasets are proprietary, so the project generates its own
+**synthetic-but-realistic** data. A small, dependency-free simulation layer
+(`dev.sereda.brandlift.simulation`) produces deterministic campaigns, exposure events,
+and survey responses from a configurable scenario — including the messy parts that
+matter to a backend: exposed/control groups, duplicate exposure events, and
+late-arriving responses. The numbers are invented on purpose; the engineering problems
 they create are the real subject.
 
-## Tech stack
+## What it demonstrates
 
-* Java 17, Spring Boot 3.x
-* Gradle, with wrapper included
-* PostgreSQL
-* Flyway for database migrations
-* Docker Compose for local Postgres
-* JUnit 5 + Testcontainers for integration tests
+* **Java 17 / Spring Boot 3** service with thin controllers over small services and
+  explicit JDBC repositories — no hidden ORM mapping.
+* **PostgreSQL + Flyway** schema with explicit constraints and indexes, modeled so
+  data quality is enforced at the storage boundary.
+* **Idempotent event ingestion**: duplicate delivery of an exposure event never
+  creates a second row, with the database unique constraint as the final guard.
+* **Raw events vs. computed summaries**: append-only raw tables feed a separately
+  computed, persisted summary that is always rebuildable from source.
+* **Survey response ingestion** capturing exposed/control group and late arrivals.
+* **Lift calculation**: a single explicit SQL aggregation into a persisted summary.
+* **Deterministic, AI-ready insights**: a natural-language insight generated behind an
+  interface that a real LLM could later implement — with the deterministic generator
+  as a built-in fallback.
+* **Integration tests** that run against a real PostgreSQL via Testcontainers.
 
-## Planned architecture
+## Architecture
 
 ```text
                 +------------------+
-   HTTP (REST)  |  Campaign API    |  create/read campaigns
+   HTTP (REST)  |  Campaign API    |  create / read campaigns
   ───────────►  |  Exposure API    |  ingest exposure events (idempotent)
                 |  Survey API      |  ingest survey responses
-                |  Lift API        |  read computed lift summaries
+                |  Lift API        |  recalculate / read lift summary
+                |  Insights API    |  read generated insight
                 +--------+---------+
                          |
+            writes raw   |   reads raw, writes summary
                          v
-              +----------------------+        +-------------------------+
-              |  raw event tables    |        |  computed summary tables |
-              |  append-only         | ─────► |  campaign_lift_summary  |
-              |  ad_exposure_events  |        |                         |
-              |  survey_responses    |        |                         |
-              +----------------------+        +-----------+-------------+
-                                                          |
-                                                          v
-                                              +-----------------------+
-                                              |  Insight generator    |
-                                              |  mock AI, no API key  |
-                                              +-----------------------+
+        +-----------------------+        +---------------------------+
+        |  raw event tables     |        |  computed summary table   |
+        |  (append-only)        | ─────► |  campaign_lift_summaries  |
+        |  ad_exposure_events   |  recalc|  (one row per campaign)   |
+        |  survey_responses     |        +-------------+-------------+
+        +-----------------------+                      |
+                                                       v
+                                          +---------------------------+
+                                          |  CampaignInsightGenerator |
+                                          |  (deterministic mock;     |
+                                          |   LLM-ready interface)    |
+                                          +---------------------------+
 ```
 
-Ingestion writes into append-only raw tables. A computation step, synchronous at
-first and queue-driven later, rolls those raw events into `campaign_lift_summary`.
+Ingestion only appends raw events. A separate, on-demand recalculation step rolls the
+raw survey responses into `campaign_lift_summaries`. The insight generator reads that
+persisted summary; it never recalculates. See [`docs/design-notes.md`](docs/design-notes.md)
+for the reasoning behind each decision.
 
-A mock insight generator takes a summary and produces a natural-language marketing
-insight. It sits behind an interface, so a real LLM integration could be added
-later without changing the rest of the app too much.
+## Intentionally simplified
 
-The project now has the initial persistence schema (Flyway): `campaigns`, the raw
-`ad_exposure_events` and `survey_responses` tables, and the computed
-`campaign_lift_summaries`, with small explicit JDBC repositories for the raw
-entities. REST APIs and the lift calculation come in later steps.
+* No real ad-network or survey-provider integrations — data is synthetic.
+* No real LLM provider — insights come from a deterministic mock behind an interface.
+* No statistical significance, confidence intervals, or causal inference — lift is a
+  plain exposed-minus-control average.
+* No Kafka/Kinesis — ingestion is synchronous, but shaped so a queue could front it.
+* No identity graph / attribution — exposures and responses share a `user_id_hash`.
+* No frontend, no authentication, no multi-tenancy.
 
-More details are in [`docs/design-notes.md`](docs/design-notes.md).
+## Tech stack
 
-## Planned commit roadmap
+Java 17 · Spring Boot 3 · Gradle (wrapper included) · PostgreSQL · Flyway · Docker
+Compose · JUnit 5 · Testcontainers. No Lombok.
 
-1. **Project skeleton + docs** - Gradle/Spring Boot setup, Docker Compose
-   Postgres, Flyway, Actuator health, context-load test, README and design notes.
-   *(this step)*
-2. **Campaign domain + schema** - `campaigns` table and basic create/read REST API.
-3. **Ad exposure ingestion** - `ad_exposure_events` table, idempotency key, and
-   deduplication on ingest.
-4. **Survey response ingestion** - `survey_responses` table and REST API.
-5. **Lift computation + summary table** - separate `campaign_lift_summary` table
-   and exposed-vs-control lift calculation.
-6. **Lift summary retrieval API** - endpoint for reading computed summaries.
-7. **Mock AI insight generator** - interface plus deterministic mock implementation.
-8. **Reliability + observability pass** - structured logs, metrics-friendly hooks,
-   and retry/DLQ notes connected back to the code.
+## Running locally
 
-The idea is that each step is one clean, reviewable commit.
-
-## Out of scope, on purpose
-
-* Real statistical significance or confidence intervals. Lift here is simplified.
-* Real authentication, authorization, and multi-tenancy.
-* A real streaming pipeline like Kafka. The design is ready for it, but does not
-  pull it in yet.
-* A real LLM integration. The insight generator is a deterministic mock behind an
-  interface.
-* A UI. This is backend-only.
-
-## Running it locally
-
-You need JDK 17+ and Docker.
-
-**1. Start Postgres**
+You need a JDK 17+ and Docker.
 
 ```bash
+# 1. Start Postgres
 docker compose up -d
-```
 
-**2. Run the tests**
-
-The tests use Testcontainers, so Docker needs to be running. They do not depend on
-the Compose Postgres instance.
-
-```bash
+# 2. Run the tests (use a real Postgres via Testcontainers; Docker must be running,
+#    but they do not depend on the Compose instance)
 ./gradlew test
-```
 
-**3. Run the app**
-
-This runs the app against the Compose Postgres instance using the `local` profile.
-
-```bash
+# 3. Run the app against the Compose Postgres, using the local profile
 ./gradlew bootRun --args='--spring.profiles.active=local'
+
+# 4. Check health
+curl http://localhost:8080/actuator/health   # {"status":"UP", ...}
 ```
 
-**4. Check health**
+Stop Postgres when done with `docker compose down` (add `-v` to drop the volume).
+
+## Demo
+
+With the app running, a small script walks the whole flow end to end (create campaign
+→ ingest exposures → ingest exposed/control surveys → recalculate → summary →
+insights):
 
 ```bash
-curl http://localhost:8080/actuator/health
-# {"status":"UP", ...}
+chmod +x scripts/demo.sh
+./scripts/demo.sh
 ```
 
-When you are done, stop Postgres:
+## API walkthrough
 
-```bash
-docker compose down          # keep data
-docker compose down -v       # also remove the volume
-```
+The same flow by hand. `Content-Type: application/json` is omitted below for brevity
+but required on the `POST`s with a body.
 
-## Campaign API
-
-With the app running (`local` profile, against the Compose Postgres):
-
-**Create a campaign**
+**1. Create a campaign** (capture the returned `id`)
 
 ```bash
 curl -s -X POST http://localhost:8080/api/campaigns \
   -H 'Content-Type: application/json' \
-  -d '{
-        "name": "Spring Awareness Push",
-        "brandName": "Acme",
-        "startsAt": "2025-01-01T00:00:00Z",
-        "endsAt": "2025-01-15T00:00:00Z"
-      }'
-# 201 Created, returns the campaign including id, createdAt, updatedAt
+  -d '{"name":"Spring Awareness Push","brandName":"Acme",
+       "startsAt":"2025-01-01T00:00:00Z","endsAt":"2025-01-15T00:00:00Z"}'
+# 201 Created; 400 on blank name/brand, missing dates, or endsAt <= startsAt
 ```
 
-**Get a campaign by id**
-
-```bash
-curl -s http://localhost:8080/api/campaigns/{id}
-# 200 with the campaign, or 404 if it does not exist
-```
-
-**List campaigns** (newest first)
-
-```bash
-curl -s http://localhost:8080/api/campaigns
-```
-
-Invalid requests (blank name/brand, missing dates, or `endsAt` not after `startsAt`)
-return `400` with a short `message` and per-field `details`.
-
-## Exposure Event Ingestion API
-
-Ingest a single ad exposure event. Ingestion is **idempotent**: repeating a request
-with the same `idempotencyKey` is safe and will not create a second raw event.
+**2. Ingest an exposure event** (idempotent: same `idempotencyKey` is a safe no-op)
 
 ```bash
 curl -s -X POST http://localhost:8080/api/exposure-events \
   -H 'Content-Type: application/json' \
-  -d '{
-        "campaignId": "{campaignId}",
-        "userIdHash": "u-9f86d081884c7d65",
-        "channel": "CTV",
-        "creativeId": "creative-1",
-        "placementId": "placement-1",
-        "impressionTimestamp": "2025-01-05T12:00:00Z",
-        "idempotencyKey": "evt-0001"
-      }'
-# First call:  201 Created with "duplicate": false
-# Same key again: 200 OK with "duplicate": true and the original event (no new row)
+  -d '{"campaignId":"{id}","userIdHash":"u-0001","channel":"CTV",
+       "creativeId":"creative-1","placementId":"placement-1",
+       "impressionTimestamp":"2025-01-05T12:00:00Z","idempotencyKey":"evt-0001"}'
+# First call: 201 with "duplicate": false. Same key again: 200 with "duplicate": true,
+# returning the original event and no new row. channel must be one of CTV, SOCIAL,
+# DISPLAY, STREAMING_AUDIO, RETAIL_MEDIA, LINEAR_TV. Unknown campaignId -> 404.
 ```
 
-`channel` must be one of `CTV`, `SOCIAL`, `DISPLAY`, `STREAMING_AUDIO`,
-`RETAIL_MEDIA`, `LINEAR_TV`. An unknown `campaignId` returns `404`.
-
-## Survey Response Ingestion API
-
-Ingest a single survey response. `exposed` records whether the respondent was in the
-exposed or control group, and the three scores are bounded `0..100`. `late` is
-optional (defaults to `false`).
+**3. Ingest survey responses** — at least one exposed and one control
 
 ```bash
+# exposed respondent
 curl -s -X POST http://localhost:8080/api/survey-responses \
   -H 'Content-Type: application/json' \
-  -d '{
-        "campaignId": "{campaignId}",
-        "userIdHash": "u-9f86d081884c7d65",
-        "exposed": true,
-        "awarenessScore": 42.5,
-        "considerationScore": 20,
-        "purchaseIntentScore": 10,
-        "responseTimestamp": "2025-01-05T12:00:00Z",
-        "late": false
-      }'
-# 201 Created, returns the stored response including id and receivedAt
+  -d '{"campaignId":"{id}","userIdHash":"u-0001","exposed":true,
+       "awarenessScore":70,"considerationScore":40,"purchaseIntentScore":25,
+       "responseTimestamp":"2025-01-06T09:00:00Z","late":false}'
+
+# control respondent
+curl -s -X POST http://localhost:8080/api/survey-responses \
+  -H 'Content-Type: application/json' \
+  -d '{"campaignId":"{id}","userIdHash":"u-9001","exposed":false,
+       "awarenessScore":60,"considerationScore":30,"purchaseIntentScore":10,
+       "responseTimestamp":"2025-01-06T09:00:00Z","late":false}'
+# 201 each. Scores are bounded 0..100; out-of-range or missing required fields -> 400.
 ```
 
-An unknown `campaignId` returns `404`; out-of-range scores or missing required
-fields return `400`.
-
-## Campaign Lift Summary API
-
-Compute and read a campaign's lift summary from its stored survey responses.
-
-**Recalculate** (computes from raw responses and upserts the summary)
+**4. Recalculate the lift summary**
 
 ```bash
 curl -s -X POST http://localhost:8080/api/campaigns/{id}/lift-summary/recalculate
-# 200 with the computed summary (exposed/control counts, per-metric averages, and lift)
-# 404 if the campaign does not exist
-# 422 if the campaign has no exposed or no control responses
+# 200 with counts, per-metric exposed/control averages, and lift.
+# 404 if the campaign is unknown; 422 if it has no exposed or no control responses.
 ```
 
-**Get the latest summary**
+**5. Get the persisted lift summary**
 
 ```bash
 curl -s http://localhost:8080/api/campaigns/{id}/lift-summary
-# 200 with the persisted summary
-# 404 if the campaign does not exist, or if no summary has been calculated yet
+# 200 with the summary; 404 if the campaign is unknown or no summary exists yet.
 ```
 
-> **Note:** lift here is a simple **exposed-average minus control-average** in score
-> points, rounded to two decimals. This demo intentionally does **not** implement
-> causal inference, statistical significance, or confidence intervals — it models the
-> backend flow (aggregate raw data → persist a computed summary), not measurement rigor.
-
-## Campaign Insights API
-
-Turn a persisted lift summary into a short, customer-facing insight (summary, key
-findings, recommended next steps, caveats). This reads the existing summary; it does
-not recalculate lift.
+**6. Get the insight**
 
 ```bash
 curl -s http://localhost:8080/api/campaigns/{id}/insights
-# 200 with the generated insight
-# 404 if the campaign does not exist, or if no lift summary has been calculated yet
+# 200 with summary, keyFindings, recommendedNextSteps, caveats.
+# 404 if the campaign is unknown or no summary exists yet.
 ```
 
-The text is produced by a **deterministic mock generator**, not a real LLM — no API
-keys or network calls. The generator sits behind a `CampaignInsightGenerator`
-interface, which is the seam where a real LLM provider could be added later (with the
-deterministic generator remaining as a fallback). See `docs/design-notes.md`.
+Lift is a simple **exposed-average minus control-average** in score points, rounded to
+two decimals. The insight text is produced by a deterministic mock generator (no API
+keys, no network calls), behind a `CampaignInsightGenerator` interface that a real LLM
+provider could later implement.
+
+## Quality checks
+
+```bash
+./gradlew test                                  # full suite, incl. Testcontainers integration tests
+docker compose up -d                            # local Postgres for running the app
+./gradlew bootRun --args='--spring.profiles.active=local'
+```
